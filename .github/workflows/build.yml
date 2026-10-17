@@ -1,10 +1,10 @@
 # Build used by the zJu4nn Hub "Mashups" tab (added in zJu4nn's copy; the original project is untouched).
-# Compiles BOTH halves of PeakCraft from this repository's source and publishes the package the Hub installs:
-#   - fabric/ → the Minecraft mod (skycraft-<version>.jar), with JDK 25 + the project's own Gradle wrapper
-#   - peak/   → the PEAK BepInEx plugin, with .NET 10. The plugin compiles against PEAK's assemblies, which can't be
-#               shipped here, so it uses the community "PEAKGameLibs" reference package from nuget.org (stripped and
-#               publicized: method bodies removed). It's placed where the project already looks for the game
-#               (PEAK_Data/Managed), so no file of the original project changes. Nothing of PEAK goes in the package.
+#   - fabric/ → the Minecraft mod (skycraft-<version>.jar), compiled HERE from this repository's source (JDK 25 +
+#               the project's own Gradle wrapper)
+#   - peak/   → the PEAK BepInEx plugin compiles against PEAK's own assemblies, which aren't public anywhere (the
+#               community reference package is from Aug/2025 and misses what PeakCraft uses). So zJu4nn compiled it
+#               from THIS repository at commit d05c4f55b8e0f987438d51a81c716cfbc6c9187f (dotnet build peak -c Release,
+#               only the project's own build files, reviewed) and the dll is in hub/peak-plugin/, pinned by sha256 here.
 # Upstream: https://github.com/aeironnsarmiento/PeakCraft (MIT), a port of https://github.com/chasmlol/SkyCraft (MIT).
 name: build
 
@@ -18,6 +18,8 @@ jobs:
   build:
     runs-on: windows-latest
     timeout-minutes: 40
+    env:
+      PLUGIN_SHA256: 8eb79e84e626beb3665cc6776bed31443a004a875354e0bf0f57228828716f7d
     steps:
       - uses: actions/checkout@v4
 
@@ -36,10 +38,6 @@ jobs:
           distribution: temurin
           java-version: '25'
 
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '10.0.x'
-
       - name: Minecraft mod (fabric/)
         shell: pwsh
         working-directory: fabric
@@ -48,27 +46,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'gradle build failed' }
           Get-ChildItem build/libs
 
-      - name: PEAK reference assemblies (PEAKGameLibs, pinned by sha256)
-        shell: pwsh
-        env:
-          LIBS_URL: https://api.nuget.org/v3-flatcontainer/peakgamelibs/1.0.1/peakgamelibs.1.0.1.nupkg
-          LIBS_SHA256: 065138c0eadf9e49397b926cbc55560b71b500b5812b73d09ddb523205f2ee17
-        run: |
-          Invoke-WebRequest $env:LIBS_URL -OutFile libs.zip
-          $sha = (Get-FileHash libs.zip -Algorithm SHA256).Hash.ToLower()
-          if ($sha -ne $env:LIBS_SHA256) { throw "PEAKGameLibs sha256 $sha does not match the pinned one" }
-          Expand-Archive libs.zip -DestinationPath libs-pkg
-          $managed = Join-Path $env:RUNNER_TEMP 'peak-ref/PEAK_Data/Managed'
-          New-Item -ItemType Directory -Force $managed | Out-Null
-          Copy-Item libs-pkg/lib/*.dll $managed
-          "PEAK_REF=$(Join-Path $env:RUNNER_TEMP 'peak-ref')/" >> $env:GITHUB_ENV
-
-      - name: PEAK plugin (peak/)
+      - name: PEAK plugin (pinned by sha256)
         shell: pwsh
         run: |
-          dotnet build peak -c Release "-p:PEAKGameRootDir=$env:PEAK_REF" -p:DeployModFiles=false -p:RunThunderPipePackAfterBuild=false
-          if ($LASTEXITCODE -ne 0) { throw 'dotnet build failed' }
-          Get-ChildItem peak/artifacts -Recurse -Filter *.dll | Select-Object FullName, Length
+          $dll = 'hub/peak-plugin/aeironnarmiento.PeakCraft.dll'
+          $sha = (Get-FileHash $dll -Algorithm SHA256).Hash.ToLower()
+          if ($sha -ne $env:PLUGIN_SHA256) { throw "plugin sha256 $sha does not match the pinned one" }
+          "plugin ok: $sha"
 
       - name: Package
         shell: pwsh
@@ -76,13 +60,11 @@ jobs:
           ZIP: ${{ steps.hub.outputs.zip }}
           VERSAO: ${{ steps.hub.outputs.versao }}
         run: |
-          $dll = Get-ChildItem peak/artifacts/bin -Recurse -Filter 'aeironnarmiento.PeakCraft.dll' | Where-Object { $_.FullName -match '[\\/]release[\\/]' } | Select-Object -First 1
-          if (-not $dll) { throw 'plugin dll not found' }
           $jar = Get-ChildItem fabric/build/libs -Filter 'skycraft-*.jar' | Where-Object { $_.Name -notmatch '-sources' } | Select-Object -First 1
           if (-not $jar) { throw 'skycraft jar not found' }
           $p = 'dist/BepInEx/plugins/PeakCraft'
           New-Item -ItemType Directory -Force $p, dist/mods | Out-Null
-          Copy-Item $dll.FullName "$p/aeironnarmiento.PeakCraft.dll"
+          Copy-Item hub/peak-plugin/aeironnarmiento.PeakCraft.dll "$p/aeironnarmiento.PeakCraft.dll"
           Copy-Item LICENSE "$p/LICENSE.txt"
           Copy-Item $jar.FullName "dist/mods/$($jar.Name)"
           Copy-Item LICENSE dist/LICENSE.txt
@@ -114,5 +96,5 @@ jobs:
           $tag = 'v' + $env:VERSAO
           gh release view $tag *> $null
           if ($LASTEXITCODE -eq 0) { gh release delete $tag --yes --cleanup-tag }
-          gh release create $tag "out/$env:ZIP" out/SHA256SUMS.txt --title "PeakCraft $env:VERSAO (zJu4nn Hub)" --notes "Built from source for the zJu4nn Hub Mashups tab. Upstream: aeironnsarmiento/PeakCraft (MIT). Workflow at $env:GITHUB_SHA." --target $env:GITHUB_SHA
+          gh release create $tag "out/$env:ZIP" out/SHA256SUMS.txt --title "PeakCraft $env:VERSAO (zJu4nn Hub)" --notes "Minecraft mod built from source here; PEAK plugin built by zJu4nn from commit d05c4f55 (pinned sha256 $env:PLUGIN_SHA256). Upstream: aeironnsarmiento/PeakCraft (MIT). Workflow at $env:GITHUB_SHA." --target $env:GITHUB_SHA
           if ($LASTEXITCODE -ne 0) { throw 'release failed' }
