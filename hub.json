@@ -1,0 +1,50 @@
+{
+  "formato": 2,
+  "nome": "PeakCraft",
+  "versao": "0.1.0",
+  "slug": "peakcraft",
+  "pacote": "peakcraft-hub-*.zip",
+  "jogos": ["peak", "minecraft"],
+  "principal": "peak",
+  "minecraft": { "versao": "26.3", "fabric": "0.19.5", "memoriaMB": 4096, "jvmArgs": ["-Dskycraft.startHidden=true"] },
+  "bases": ["bepinex"],
+  "mapear": [
+    { "de": "BepInEx/", "para": "{jogo:peak}/BepInEx" },
+    { "de": "mods/", "para": "{mods}" }
+  ],
+  "textos": {
+    "pt": {
+      "descricao": "Jogue o PEAK como um jogador de Minecraft: física, inventário e HUD do Minecraft na montanha do PEAK, colocando e quebrando blocos que aparecem no mundo do próprio PEAK.",
+      "comoFunciona": [
+        "O Hub abre o Minecraft escondido e depois o PEAK. Comece uma partida solo.",
+        "G interage com as coisas do PEAK (quiosque, malas, fogueira); O abre o menu do Minecraft; Esc abre o menu do PEAK.",
+        "O mundo começa no Criativo. Com /gamemode survival, os perigos da montanha tiram corações do Minecraft.",
+        "Abrindo o PEAK pela Steam, é o jogo normal (o mashup fica desligado fora do Hub)."
+      ],
+      "avisos": [
+        "Somente solo: não funciona em grupo.",
+        "Precisa do Minecraft: Java Edition original (a conta Microsoft que tem o jogo).",
+        "Experimental: o final no cume ainda não dá pra alcançar.",
+        "Pesado: os dois jogos rodam juntos (uns 4 GB de memória a mais)."
+      ]
+    },
+    "en": {
+      "descricao": "Play PEAK as a Minecraft player: Minecraft's physics, inventory and HUD on PEAK's mountain, placing and breaking blocks that show up in PEAK's own world.",
+      "comoFunciona": [
+        "The Hub starts Minecraft hidden, then PEAK. Start a solo game.",
+        "G interacts with PEAK's things (kiosk, luggage, campfire); O opens Minecraft's menu; Esc opens PEAK's menu.",
+        "The world starts in Creative. With /gamemode survival, the mountain's hazards cost Minecraft hearts.",
+        "Launching PEAK from Steam gives you the normal game (the mashup is off outside the Hub)."
+      ],
+      "avisos": [
+        "Solo only: it doesn't work in a group.",
+        "Requires the original Minecraft: Java Edition (the Microsoft account that owns the game).",
+        "Experimental: the summit ending can't be reached yet.",
+        "Heavy: both games run together (about 4 GB of extra memory)."
+      ]
+    }
+  },
+  "creditos": [
+    { "nome": "SkyCraft — chasmlol", "licenca": "MIT", "url": "https://github.com/chasmlol/SkyCraft" }
+  ]
+}
