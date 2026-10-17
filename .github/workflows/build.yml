@@ -1,0 +1,118 @@
+# Build used by the zJu4nn Hub "Mashups" tab (added in zJu4nn's copy; the original project is untouched).
+# Compiles BOTH halves of PeakCraft from this repository's source and publishes the package the Hub installs:
+#   - fabric/ → the Minecraft mod (skycraft-<version>.jar), with JDK 25 + the project's own Gradle wrapper
+#   - peak/   → the PEAK BepInEx plugin, with .NET 10. The plugin compiles against PEAK's assemblies, which can't be
+#               shipped here, so it uses the community "PEAKGameLibs" reference package from nuget.org (stripped and
+#               publicized: method bodies removed). It's placed where the project already looks for the game
+#               (PEAK_Data/Managed), so no file of the original project changes. Nothing of PEAK goes in the package.
+# Upstream: https://github.com/aeironnsarmiento/PeakCraft (MIT), a port of https://github.com/chasmlol/SkyCraft (MIT).
+name: build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read hub.json
+        id: hub
+        shell: pwsh
+        run: |
+          $h = Get-Content hub.json -Raw | ConvertFrom-Json
+          if ($h.formato -ne 2) { throw 'hub.json needs "formato": 2' }
+          if ($h.versao -notmatch '^[\w.+-]{1,24}$' -or $h.pacote -notmatch '^[\w.+*-]{3,100}$') { throw 'bad versao/pacote in hub.json' }
+          "versao=$($h.versao)" >> $env:GITHUB_OUTPUT
+          "zip=$($h.pacote.Replace('*', $h.versao))" >> $env:GITHUB_OUTPUT
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Minecraft mod (fabric/)
+        shell: pwsh
+        working-directory: fabric
+        run: |
+          ./gradlew.bat build --no-daemon --stacktrace
+          if ($LASTEXITCODE -ne 0) { throw 'gradle build failed' }
+          Get-ChildItem build/libs
+
+      - name: PEAK reference assemblies (PEAKGameLibs, pinned by sha256)
+        shell: pwsh
+        env:
+          LIBS_URL: https://api.nuget.org/v3-flatcontainer/peakgamelibs/1.0.1/peakgamelibs.1.0.1.nupkg
+          LIBS_SHA256: 065138c0eadf9e49397b926cbc55560b71b500b5812b73d09ddb523205f2ee17
+        run: |
+          Invoke-WebRequest $env:LIBS_URL -OutFile libs.zip
+          $sha = (Get-FileHash libs.zip -Algorithm SHA256).Hash.ToLower()
+          if ($sha -ne $env:LIBS_SHA256) { throw "PEAKGameLibs sha256 $sha does not match the pinned one" }
+          Expand-Archive libs.zip -DestinationPath libs-pkg
+          $managed = Join-Path $env:RUNNER_TEMP 'peak-ref/PEAK_Data/Managed'
+          New-Item -ItemType Directory -Force $managed | Out-Null
+          Copy-Item libs-pkg/lib/*.dll $managed
+          "PEAK_REF=$(Join-Path $env:RUNNER_TEMP 'peak-ref')/" >> $env:GITHUB_ENV
+
+      - name: PEAK plugin (peak/)
+        shell: pwsh
+        run: |
+          dotnet build peak -c Release "-p:PEAKGameRootDir=$env:PEAK_REF" -p:DeployModFiles=false -p:RunThunderPipePackAfterBuild=false
+          if ($LASTEXITCODE -ne 0) { throw 'dotnet build failed' }
+          Get-ChildItem peak/artifacts -Recurse -Filter *.dll | Select-Object FullName, Length
+
+      - name: Package
+        shell: pwsh
+        env:
+          ZIP: ${{ steps.hub.outputs.zip }}
+          VERSAO: ${{ steps.hub.outputs.versao }}
+        run: |
+          $dll = Get-ChildItem peak/artifacts/bin -Recurse -Filter 'aeironnarmiento.PeakCraft.dll' | Where-Object { $_.FullName -match '[\\/]release[\\/]' } | Select-Object -First 1
+          if (-not $dll) { throw 'plugin dll not found' }
+          $jar = Get-ChildItem fabric/build/libs -Filter 'skycraft-*.jar' | Where-Object { $_.Name -notmatch '-sources' } | Select-Object -First 1
+          if (-not $jar) { throw 'skycraft jar not found' }
+          $p = 'dist/BepInEx/plugins/PeakCraft'
+          New-Item -ItemType Directory -Force $p, dist/mods | Out-Null
+          Copy-Item $dll.FullName "$p/aeironnarmiento.PeakCraft.dll"
+          Copy-Item LICENSE "$p/LICENSE.txt"
+          Copy-Item $jar.FullName "dist/mods/$($jar.Name)"
+          Copy-Item LICENSE dist/LICENSE.txt
+          Copy-Item THIRD-PARTY-NOTICES.md dist/THIRD-PARTY-NOTICES.md
+          @(
+            "PeakCraft $env:VERSAO (build do zJu4nn Hub)",
+            '',
+            'Jogue o PEAK como um jogador de Minecraft. Somente solo.',
+            'Original: github.com/aeironnsarmiento/PeakCraft (MIT), adaptacao do SkyCraft de chasmlol (MIT).',
+            'Projeto de fas, sem ligacao com Mojang, Microsoft, Landfall ou Aggro Crab.'
+          ) | Out-File -Encoding utf8 dist/LEIA.txt
+          New-Item -ItemType Directory -Force out | Out-Null
+          Push-Location dist
+          7z a -tzip "../out/$env:ZIP" * -r | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw '7z failed' }
+          Pop-Location
+          $sha = (Get-FileHash "out/$env:ZIP" -Algorithm SHA256).Hash.ToLower()
+          "$sha  $env:ZIP" | Out-File -Encoding ascii out/SHA256SUMS.txt
+          Get-Content out/SHA256SUMS.txt
+          7z l "out/$env:ZIP"
+
+      - name: Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSAO: ${{ steps.hub.outputs.versao }}
+          ZIP: ${{ steps.hub.outputs.zip }}
+        run: |
+          $tag = 'v' + $env:VERSAO
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -eq 0) { gh release delete $tag --yes --cleanup-tag }
+          gh release create $tag "out/$env:ZIP" out/SHA256SUMS.txt --title "PeakCraft $env:VERSAO (zJu4nn Hub)" --notes "Built from source for the zJu4nn Hub Mashups tab. Upstream: aeironnsarmiento/PeakCraft (MIT). Workflow at $env:GITHUB_SHA." --target $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'release failed' }
