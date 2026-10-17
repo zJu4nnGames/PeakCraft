@@ -8,6 +8,7 @@
   "principal": "peak",
   "minecraft": { "versao": "26.3", "fabric": "0.19.5", "memoriaMB": 4096, "jvmArgs": ["-Dskycraft.startHidden=true"] },
   "bases": ["bepinex"],
+  "ganchos": ["{jogo:peak}/BepInEx/plugins/PeakCraft/aeironnarmiento.PeakCraft.dll"],
   "mapear": [
     { "de": "BepInEx/", "para": "{jogo:peak}/BepInEx" },
     { "de": "mods/", "para": "{mods}" }
